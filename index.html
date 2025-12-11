@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>爆弾みたいな時計（改訂）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;background:#000;color:#f00;font-family:monospace;overflow:hidden}
+  #display{white-space:pre;line-height:1em}
+  /* コントロール：3行固定グリッド */
+  #controls{
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    bottom:0;
+    width:96%;
+    max-width:1400px;
+    display:grid;
+    grid-template-rows: repeat(3, auto);
+    gap:6px;
+    padding:8px;
+    background:rgba(0,0,0,0.45);
+    border-radius:8px;
+    font-size:14px;
+    align-items:center;
+    z-index:20;
+  }
+  .row { display:flex; gap:6px; align-items:center; overflow-x:auto; padding:2px 0; }
+  button, input { background:#111; color:#f00; border:1px solid #444; padding:6px 8px; font-size:13px; white-space:nowrap; }
+  .small{padding:4px 6px;font-size:12px}
+  .bases { display:flex; gap:6px; align-items:center; }
+  .base-btn{padding:6px 10px;font-size:13px; white-space:nowrap}
+  .speed-controls{display:flex;gap:4px;align-items:center}
+  button.active{border-color:#f00}
+  #toggle-300.active{border-color:lime;color:lime}
+  #toggle-hex.active{border-color:cyan;color:cyan}
+  input[type=number]{background:#111;color:#f00;border:1px solid #333;padding:6px}
+  #controls{max-height:calc(3 * 56px);}
+  @media (max-width:640px){ #controls{font-size:12px} button,input{font-size:12px} }
+
+  /* --- alert overlay: 画面全体をじわっと赤点滅 --- */
+  #alert-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(255,0,0,0);
+    pointer-events:none;
+    z-index:10; /* controls の下にしてコントロールは押せる状態を維持 */
+    transition: background 0.4s ease-in-out;
+    will-change: background;
+  }
+  /* クラス付与でパルスアニメーションを開始 */
+  .alert-active {
+    animation: alertPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes alertPulse {
+    0%   { background: rgba(255,0,0,0); }
+    35%  { background: rgba(255,0,0,0.42); }
+    70%  { background: rgba(255,0,0,0.18); }
+    100% { background: rgba(255,0,0,0); }
+  }
+</style>
+</head>
+<body>
+<pre id="display"></pre>
+
+<!-- 全画面赤オーバーレイ（初期は透明） -->
+<div id="alert-overlay" aria-hidden="true"></div>
+
+<div id="controls" aria-label="controls">
+  <div class="row" id="row1">
+    <button data-mode="0" class="mode-btn active">時計</button>
+    <button data-mode="1" class="mode-btn">タイマー</button>
+    <button data-mode="2" class="mode-btn">ストップ</button>
+    <button data-mode="3" class="mode-btn">アラーム</button>
+    <button data-mode="4" class="mode-btn">カウンタ</button>
+
+    <button id="toggle" title="開始/停止">開始/停止</button>
+    <button id="reset" title="リセット">リセット</button>
+
+    <button id="toggle-300" title="0キーで切替">300:OFF</button>
+    <button id="toggle-hex" title="HEX表示切替">HEX:OFF</button>
+  </div>
+
+  <div class="row" id="row2">
+    <div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
+      <div style="font-size:12px;align-self:center">ベース：</div>
+      <div class="bases" id="base-group" aria-hidden="false">
+        <button class="base-btn" data-secs="1">1s</button>
+        <button class="base-btn" data-secs="10">10s</button>
+        <button class="base-btn" data-secs="60">1min</button>
+        <button class="base-btn" data-secs="600">10min</button>
+        <button class="base-btn" data-secs="3600">1h</button>
+        <button class="base-btn" data-secs="21600">6h</button>
+        <button class="base-btn" data-secs="86400">1d</button>
+        <button class="base-btn" data-secs="604800">7d</button>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+      <label style="font-size:12px">倍数</label>
+      <input id="base-mult" inputmode="decimal" type="number" min="0" step="1" value="1" style="width:72px" />
+      <button id="add-base" class="small">+ base</button>
+      <button id="sub-base" class="small">- base</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+      <label style="font-size:12px">速度</label>
+      <input id="timer-speed-input" inputmode="decimal" type="number" step="any" min="0.0001" value="1" style="width:72px" />
+      <div class="speed-controls" title="1〜9で即時切替">
+        <button class="speed-btn small speed-btn-active" data-speed="1">1x</button>
+        <button class="speed-btn small" data-speed="2">2x</button>
+        <button class="speed-btn small" data-speed="3">3x</button>
+        <button class="speed-btn small" data-speed="4">4x</button>
+        <button class="speed-btn small" data-speed="5">5x</button>
+        <button class="speed-btn small" data-speed="6">6x</button>
+        <button class="speed-btn small" data-speed="7">7x</button>
+        <button class="speed-btn small" data-speed="8">8x</button>
+        <button class="speed-btn small" data-speed="9">9x</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" id="row3">
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+      <label style="font-size:12px">SW速度</label>
+      <input id="sw-speed-input" inputmode="decimal" type="number" step="any" min="0.0001" value="1" style="width:72px" />
+    </div>
+
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+      <input id="alarm-year" type="number" placeholder="年" style="width:70px" />
+      <input id="alarm-month" type="number" placeholder="月" style="width:56px" />
+      <input id="alarm-day" type="number" placeholder="日" style="width:56px" />
+      <input id="alarm-hour" type="number" placeholder="時" style="width:56px" />
+      <input id="alarm-minute" type="number" placeholder="分" style="width:56px" />
+      <input id="alarm-second" type="number" placeholder="秒" style="width:56px" />
+      <button id="set-alarm" class="small">セット</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+      <button id="dec-counter" class="small">-1</button>
+      <button id="inc-counter" class="small">+1</button>
+      <input id="counter-input" type="number" inputmode="decimal" placeholder="初期値" style="width:120px" />
+      <button id="set-counter" class="small">セット</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;margin-left:auto">
+      <label style="font-size:12px">FPS</label>
+      <input id="fps-input" type="number" min="1" max="240" step="1" value="60" style="width:64px" />
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const basePatterns = {
+    '0': ["　███　","█　　　█","█　　　█","█　　　█","　　　　　","█　　　█","█　　　█","█　　　█","　███　"],
+    '1': ["　　　　　","　　　　█","　　　　█","　　　　█","　　　　　","　　　　█","　　　　█","　　　　█","　　　　　"],
+    '2': ["　███　","　　　　█","　　　　█","　　　　█","　███　","█　　　　","█　　　　","█　　　　","　███　"],
+    '3': ["　███　","　　　　█","　　　　█","　　　　█","　███　","　　　　█","　　　　█","　　　　█","　███　"],
+    '4': ["　　　　　","█　　　█","█　　　█","█　　　█","　███　","　　　　█","　　　　█","　　　　█","　　　　　"],
+    '5': ["　███　","█　　　　","█　　　　","█　　　　","　███　","　　　　█","　　　　█","　　　　█","　███　"],
+    '6': ["　　　　　","█　　　　","█　　　　","█　　　　","　███　","█　　　█","█　　　█","█　　　█","　███　"],
+    '7': ["　███　","　　　　█","　　　　█","　　　　█","　　　　　","　　　　█","　　　　█","　　　　█","　　　　　"],
+    '8': ["　███　","█　　　█","█　　　█","█　　　█","　███　","█　　　█","█　　　█","█　　　█","　███　"],
+    '9': ["　███　","█　　　█","█　　　█","█　　　█","　███　","　　　　█","　　　　█","　　　　█","　　　　　"],
+    ':': ["　　　","　█　","　　　","　　　","　　　","　　　","　　　","　█　","　　　"],
+    '.': ["　　　","　　　","　　　","　　　","　　　","　　　","　　　","　█　","　　　"],
+    '年': Array(9).fill('　'.repeat(5)),
+    '月': Array(9).fill('　'.repeat(5)),
+    '日': Array(9).fill('　'.repeat(5)),
+    ' ': Array(9).fill('　'.repeat(5))
+  };
+
+ const hexOverrides = {
+    '6': ["　███　","█　　　　","█　　　　","█　　　　","　███　","█　　　█","█　　　█","█　　　█","　███　"],
+    'b': ["　　　　　","█　　　　","█　　　　","█　　　　","　███　","█　　　█","█　　　█","█　　　█","　███　"],
+    'a': ["　███　","█　　　█","█　　　█","█　　　█","　███　","█　　　█","█　　　█","█　　　█","　　　　　"],
+    'c': ["　███　","█　　　　","█　　　　","█　　　　","　　　　　","█　　　　","█　　　　","█　　　　","　███　"],
+    'd': ["　　　　　","　　　　█","　　　　█","　　　　█","　███　","█　　　█","█　　　█","█　　　█","　███　"],
+    'e': ["　███　","█　　　　","█　　　　","█　　　　","　███　","█　　　　","█　　　　","█　　　　","　███　"],
+    'f': ["　███　","█　　　　","█　　　　","█　　　　","　███　","█　　　　","█　　　　","█　　　　","　　　　　"],
+  };
+
+
+  const modes = { CLOCK:0, TIMER:1, STOPWATCH:2, ALARM:3, COUNTER:4 };
+  let mode = modes.CLOCK;
+
+  let timerSec = 0, timerRun = false, timerLast = 0, timerSpeed = 1.0;
+  let swElapsed = 0, swRunning = false, swLast = 0, swSpeed = 1.0;
+  let alarmTime = 0, alarmSet = false;
+  let counterValue = 0.0, initialCounter = 0.0;
+  let use300Mode = false, hexMode = false;
+  let fps = 50, refreshId = null;
+  let baseSeconds = 1;
+
+  const disp = document.getElementById('display');
+  const overlay = document.getElementById('alert-overlay'); // オーバーレイ要素
+  const modeBtns = document.querySelectorAll('.mode-btn');
+  const baseGroup = document.getElementById('base-group');
+  const baseMultInput = document.getElementById('base-mult');
+  const addBaseBtn = document.getElementById('add-base');
+  const subBaseBtn = document.getElementById('sub-base');
+  const btnToggle = document.getElementById('toggle');
+  const btnReset = document.getElementById('reset');
+  const setAlarmBtn = document.getElementById('set-alarm');
+  const incBtn = document.getElementById('inc-counter');
+  const decBtn = document.getElementById('dec-counter');
+  const setCounterBtn = document.getElementById('set-counter');
+  const counterInput = document.getElementById('counter-input');
+  const toggle300Btn = document.getElementById('toggle-300');
+  const toggleHexBtn = document.getElementById('toggle-hex');
+  const timerSpeedInput = document.getElementById('timer-speed-input');
+  const swSpeedInput = document.getElementById('sw-speed-input');
+  const speedButtons = Array.from(document.querySelectorAll('.speed-btn'));
+  const fpsInput = document.getElementById('fps-input');
+
+  function blankLeadingHex(hexStr) {
+    const orig = String(hexStr);
+    const n = orig.length;
+    const out = orig.split('');
+    let seenNonZero = false;
+    for (let i = 0; i < n - 1; i++) {
+      if (!seenNonZero) {
+        if (orig[i] === '0') out[i] = ' ';
+        else seenNonZero = true;
+      }
+    }
+    return out.join('');
+  }
+
+  function getPattern(ch) {
+    if (hexMode) {
+      if (hexOverrides[ch]) return hexOverrides[ch];
+      if (basePatterns[ch]) return basePatterns[ch];
+      const lower = ch.toLowerCase();
+      if (hexOverrides[lower]) return hexOverrides[lower];
+    }
+    return basePatterns[ch] || basePatterns[' '];
+  }
+
+  function setFontSize(cols, rows) {
+    const size = Math.floor(Math.min(window.innerWidth / cols, window.innerHeight / rows));
+    disp.style.fontSize = size + 'px';
+  }
+
+  function renderLine(str, i) {
+    let row = '　';
+    for (let ch of str) row += getPattern(ch)[i] + '　';
+    return row;
+  }
+
+  function buildPartsFromMS(ms) {
+    const h = Math.floor(ms / 3600000) % 24;
+    const m = Math.floor(ms / 60000) % 60;
+    const s = Math.floor(ms / 1000) % 60;
+    const msr = ms % 1000;
+
+    if (!hexMode) {
+      if (!use300Mode) {
+        const d1 = String(Math.floor(h / 10));
+        const d2 = String(h % 10);
+        const d3 = ':';
+        const d4 = String(Math.floor(m / 10));
+        const d5 = String(m % 10);
+        const d6 = ':';
+        const d7 = String(Math.floor(s / 10));
+        const d8 = String(s % 10);
+        const d9 = '.';
+        const d10 = String(Math.floor(msr / 100));
+        const d11 = String(Math.floor((msr / 10) % 10));
+        const d12 = String(msr % 10);
+        return [d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12];
+      } else {
+        let count = Math.floor(msr * 300 / 1000);
+        if (count < 0) count = 0;
+        if (count > 299) count = 299;
+        const cHund = Math.floor(count / 100);
+        const cTen = Math.floor((count % 100) / 10);
+        const cOne = count % 10;
+        const d1 = String(Math.floor(h / 10));
+        const d2 = String(h % 10);
+        const d3 = ':';
+        const d4 = String(Math.floor(m / 10));
+        const d5 = String(m % 10);
+        const d6 = ':';
+        const d7 = String(Math.floor(s / 10));
+        const d8 = String(s % 10);
+        const d9 = '.';
+        const d10 = String(cHund);
+        const d11 = String(cTen);
+        const d12 = String(cOne);
+        return [d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12];
+      }
+    } else {
+      const hHex = h.toString(16).toLowerCase().padStart(2,'0');
+      const mHex = m.toString(16).toLowerCase().padStart(2,'0');
+      const sHex = s.toString(16).toLowerCase().padStart(2,'0');
+      const d3 = ':', d6=':';
+      if (!use300Mode) {
+        let msHex = msr.toString(16).toLowerCase().padStart(3,'0');
+        msHex = blankLeadingHex(msHex);
+        return [hHex[0], hHex[1], d3, mHex[0], mHex[1], d6, sHex[0], sHex[1], '.', msHex[0], msHex[1], msHex[2]];
+      } else {
+        let count = Math.floor(msr * 300 / 1000);
+        if (count < 0) count = 0;
+        if (count > 299) count = 299;
+        let cntHex = count.toString(16).toLowerCase().padStart(3,'0');
+        cntHex = blankLeadingHex(cntHex);
+        return [hHex[0], hHex[1], d3, mHex[0], mHex[1], d6, sHex[0], sHex[1], '.', cntHex[0], cntHex[1], cntHex[2]];
+      }
+    }
+  }
+
+  function stripLeading(p) {
+    if (!hexMode) {
+      if (p[0] === '0') p[0] = ' ';
+      if (p[3] === '0') p[3] = ' ';
+      if (p[6] === '0') p[6] = ' ';
+      if (p[9] === '0') p[9] = ' ';
+      if (p[9] === ' ' && p[10] === '0') p[10] = ' ';
+    } else {
+      if (p[0] === '0') p[0] = ' ';
+      if (p[3] === '0') p[3] = ' ';
+      if (p[6] === '0') p[6] = ' ';
+    }
+    return p;
+  }
+
+  function formatCounterDisplay(val) {
+    if (!hexMode) {
+      let str;
+      if (Math.abs(val - Math.round(val)) < 1e-9) str = String(Math.round(val));
+      else str = String(Number(val.toFixed(3)));
+      if (str.length > 13) str = str.slice(-13);
+      return str.padStart(13, ' ');
+    } else {
+      const sign = val < 0 ? '-' : '';
+      const absVal = Math.abs(val);
+      const intPart = Math.floor(absVal);
+      const frac = absVal - intPart;
+      let intHex = intPart.toString(16).toLowerCase();
+      let fracHex = '';
+      if (frac > 0) {
+        let f = frac;
+        for (let i = 0; i < 3; i++) {
+          f *= 16;
+          const d = Math.floor(f);
+          fracHex += d.toString(16);
+          f -= d;
+        }
+        fracHex = blankLeadingHex(fracHex);
+      }
+      let s = intHex + (fracHex ? ('.' + fracHex) : '');
+      if (sign) s = sign + s;
+      if (s.length > 13) s = s.slice(-13);
+      return s.padStart(13, ' ');
+    }
+  }
+
+  function update() {
+    const lines = [];
+    disp.classList.remove('alert');
+    // overlay はここで制御（タイマーが0以下のときにパルスを開始）
+    const now = Date.now();
+    let top = '', bot = '';
+
+    switch (mode) {
+      case modes.CLOCK: {
+        const d = new Date();
+        if (!hexMode) {
+          const yearStr = String(d.getFullYear());
+          const monthNum = d.getMonth() + 1;
+          const monthStr = monthNum < 10 ? String(monthNum) : ('0' + monthNum).slice(-2);
+          const dayNum = d.getDate();
+          const dayStr = dayNum < 10 ? String(dayNum) : ('0' + dayNum).slice(-2);
+          top = `${yearStr}年${monthStr}月${dayStr}日`;
+        } else {
+          const yearHex = d.getFullYear().toString(16).toLowerCase();
+          const monthHex = (d.getMonth()+1).toString(16).toLowerCase();
+          const dayHex = d.getDate().toString(16).toLowerCase();
+          top = `${yearHex}年${monthHex}月${dayHex}日`;
+        }
+        const msOfDay = d.getHours()*3600000 + d.getMinutes()*60000 + d.getSeconds()*1000 + d.getMilliseconds();
+        bot = stripLeading(buildPartsFromMS(msOfDay)).join('');
+        overlay.classList.remove('alert-active');
+      } break;
+
+      case modes.TIMER: {
+        if (timerRun) {
+          const t = now;
+          const delta = (t - timerLast) / 1000.0;
+          timerSec = Math.max(0, timerSec - delta * timerSpeed);
+          timerLast = t;
+        }
+        top = timerSec >= 86400 ? `${Math.floor(timerSec / 86400)}日` : ' ';
+        const remainingMS = Math.round((timerSec % 86400000) * 1000);
+        bot = stripLeading(buildPartsFromMS(remainingMS)).join('');
+        if (timerSec <= 0) {
+          disp.classList.add('alert');
+          // タイマーが 0 以下になったらオーバーレイでじわっと点滅
+          overlay.classList.add('alert-active');
+        } else {
+          overlay.classList.remove('alert-active');
+        }
+      } break;
+
+      case modes.STOPWATCH: {
+        top = ' ';
+        if (swRunning) {
+          const t = now;
+          const delta = (t - swLast);
+          swElapsed += Math.round(delta * swSpeed);
+          swLast = t;
+        }
+        const elapsedMS = Math.max(0, swElapsed);
+        bot = stripLeading(buildPartsFromMS(elapsedMS % 86400000)).join('');
+        overlay.classList.remove('alert-active');
+      } break;
+
+      case modes.ALARM: {
+        if (alarmSet) {
+          if (now < alarmTime) {
+            const diff = alarmTime - now;
+            top = diff >= 86400000 ? `${Math.floor(diff / 86400000)}日` : ' ';
+            bot = stripLeading(buildPartsFromMS(diff % 86400000)).join('');
+          } else {
+            const up = now - alarmTime;
+            top = up >= 86400000 ? `${Math.floor(up / 86400000)}日経過` : ' ';
+            bot = stripLeading(buildPartsFromMS(up % 86400000)).join('');
+          }
+        } else { top = 'アラーム未設定'; bot = '　　　　　'; }
+        overlay.classList.remove('alert-active');
+      } break;
+
+      case modes.COUNTER: {
+        top = ' ';
+        bot = formatCounterDisplay(counterValue);
+        overlay.classList.remove('alert-active');
+      } break;
+    }
+
+    lines.push('　');
+    for (let i = 0; i < 9; i++) lines.push(renderLine(top, i));
+    lines.push('');
+    for (let i = 0; i < 9; i++) lines.push(renderLine(bot, i));
+    disp.textContent = lines.join('\n');
+
+    const cols = Math.max(top.length, bot.length) * 6 + 1;
+    setFontSize(cols, lines.length);
+  }
+
+  /* UI wiring */
+  modeBtns.forEach(b => b.addEventListener('click', () => {
+    mode = +b.dataset.mode;
+    modeBtns.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    update();
+  }));
+
+  Array.from(baseGroup.querySelectorAll('.base-btn')).forEach(btn => {
+    btn.addEventListener('click', () => {
+      baseSeconds = parseFloat(btn.dataset.secs) || 1;
+      Array.from(baseGroup.querySelectorAll('.base-btn')).forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+  const firstBase = baseGroup.querySelector('.base-btn');
+  if (firstBase) { firstBase.classList.add('active'); baseSeconds = parseFloat(firstBase.dataset.secs)||1; }
+
+  addBaseBtn.addEventListener('click', () => {
+    const mult = Math.max(0, parseFloat(baseMultInput.value) || 1);
+    timerSec = Math.max(0, timerSec + baseSeconds * mult);
+    if (!timerRun) update();
+  });
+  subBaseBtn.addEventListener('click', () => {
+    const mult = Math.max(0, parseFloat(baseMultInput.value) || 1);
+    timerSec = Math.max(0, timerSec - baseSeconds * mult);
+    if (!timerRun) update();
+  });
+
+  btnToggle.addEventListener('click', () => {
+    if (mode === modes.TIMER) { timerRun = !timerRun; if (timerRun) timerLast = Date.now(); }
+    else if (mode === modes.STOPWATCH) { swRunning = !swRunning; if (swRunning) swLast = Date.now(); }
+  });
+
+  btnReset.addEventListener('click', () => {
+    switch (mode) {
+      case modes.TIMER: timerSec = 0; timerRun = false; break;
+      case modes.STOPWATCH: swElapsed = 0; swRunning = false; break;
+      case modes.ALARM: alarmSet = false; break;
+      case modes.COUNTER: counterValue = initialCounter || 0; break;
+    }
+    update();
+  });
+
+  incBtn.addEventListener('click', () => { counterValue = Math.min(counterValue + 1, 9999999999999); update(); });
+  decBtn.addEventListener('click', () => { counterValue = Math.max(counterValue - 1, -9999999999999); update(); });
+
+  setCounterBtn.addEventListener('click', () => {
+    const v = parseFloat(counterInput.value);
+    if (!isNaN(v)) { counterValue = Math.min(Math.max(v, -9999999999999), 9999999999999); initialCounter = counterValue; }
+    update();
+  });
+
+  toggle300Btn.addEventListener('click', () => {
+    use300Mode = !use300Mode;
+    toggle300Btn.classList.toggle('active', use300Mode);
+    toggle300Btn.textContent = '300:' + (use300Mode ? 'ON' : 'OFF');
+    update();
+  });
+
+  toggleHexBtn.addEventListener('click', () => {
+    hexMode = !hexMode;
+    toggleHexBtn.classList.toggle('active', hexMode);
+    toggleHexBtn.textContent = 'HEX:' + (hexMode ? 'ON' : 'OFF');
+    update();
+  });
+
+  timerSpeedInput.addEventListener('change', () => {
+    const v = parseFloat(timerSpeedInput.value);
+    if (!isNaN(v) && v > 0) { timerSpeed = v; if (timerRun) timerLast = Date.now(); }
+    else timerSpeedInput.value = String(timerSpeed);
+  });
+
+  swSpeedInput.addEventListener('change', () => {
+    const v = parseFloat(swSpeedInput.value);
+    if (!isNaN(v) && v > 0) { swSpeed = v; if (swRunning) swLast = Date.now(); }
+    else swSpeedInput.value = String(swSpeed);
+  });
+
+  speedButtons.forEach(b => {
+    b.addEventListener('click', () => {
+      const s = parseFloat(b.dataset.speed);
+      if (!isNaN(s)) {
+        timerSpeed = s; timerSpeedInput.value = String(timerSpeed);
+        speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === s));
+        if (timerRun) timerLast = Date.now();
+      }
+    });
+  });
+
+  function applyFPS() {
+    const v = parseInt(fpsInput.value) || 50;
+    fps = Math.max(1, Math.min(240, v));
+    fpsInput.value = String(fps);
+    if (refreshId) clearInterval(refreshId);
+    const interval = Math.round(1000 / fps);
+    refreshId = setInterval(update, interval);
+  }
+  fpsInput.addEventListener('change', applyFPS);
+
+  setAlarmBtn.addEventListener('click', () => {
+    const yVal = document.getElementById('alarm-year').value;
+    const mVal = document.getElementById('alarm-month').value;
+    const dVal = document.getElementById('alarm-day').value;
+    const hh = parseInt(document.getElementById('alarm-hour').value) || 0;
+    const mm = parseInt(document.getElementById('alarm-minute').value) || 0;
+    const ss = parseInt(document.getElementById('alarm-second').value) || 0;
+    const now = new Date();
+    let target;
+    if (yVal !== '' && mVal !== '' && dVal !== '') {
+      target = new Date(parseInt(yVal), parseInt(mVal)-1, parseInt(dVal), hh, mm, ss);
+    } else {
+      target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, ss);
+      if (target.getTime() <= now.getTime()) target = new Date(target.getTime() + 24*3600*1000);
+    }
+    alarmTime = target.getTime();
+    alarmSet = true;
+    update();
+  });
+function isSpeedInputFocused() {
+  const el = document.activeElement;
+  return el === timerSpeedInput || el === swSpeedInput;
+}
+
+
+  document.body.addEventListener('keydown', (e) => {
+
+
+  // ★速度テキストボックス選択中はショートカット無効化
+  if (isSpeedInputFocused()) return;
+
+  //（以下は既存のキー処理をそのまま残す）
+
+    if (e.code === 'KeyR') { e.preventDefault(); btnReset.click(); return; }
+    if (e.code === 'Digit0') { e.preventDefault(); toggle300Btn.click(); return; }
+    else if (/^Digit[1-9]$/.test(e.code)) {
+      const num = +e.code.slice(-1);
+      if (mode === modes.TIMER) { e.preventDefault(); timerSpeed = num; timerSpeedInput.value = String(timerSpeed); speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === num)); if (timerRun) timerLast = Date.now(); return; }
+    }
+
+    if (mode === modes.COUNTER) {
+      if (e.code === 'Space') { e.preventDefault(); incBtn.click(); }
+      if (e.code === 'Enter') { e.preventDefault(); decBtn.click(); }
+    } else if (e.code === 'Space' || e.code === 'Enter') {
+      if (e.code === 'Space') { e.preventDefault(); btnToggle.click(); }
+    }
+  });
+
+  applyFPS();
+  update();
+  window.addEventListener('resize', update);
+})();
+</script>
+</body>
+</html>

@@ -575,28 +575,36 @@ function isSpeedInputFocused() {
 }
 
 
-  document.body.addEventListener('keydown', (e) => {
+  // --- 置き換えるキーボードハンドラ（既存の document.body.addEventListener をこれに差し替えてください） ---
+document.addEventListener('keydown', (e) => {
+  // テキスト入力中はショートカットを無効にする
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+    return; // 何も処理せず抜ける（元の挙動は変更しない）
+  }
 
-
-  // ★速度テキストボックス選択中はショートカット無効化
-  if (isSpeedInputFocused()) return;
-
-  //（以下は既存のキー処理をそのまま残す）
-
-    if (e.code === 'KeyR') { e.preventDefault(); btnReset.click(); return; }
-    if (e.code === 'Digit0') { e.preventDefault(); toggle300Btn.click(); return; }
-    else if (/^Digit[1-9]$/.test(e.code)) {
-      const num = +e.code.slice(-1);
-      if (mode === modes.TIMER) { e.preventDefault(); timerSpeed = num; timerSpeedInput.value = String(timerSpeed); speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === num)); if (timerRun) timerLast = Date.now(); return; }
+  if (e.code === 'KeyR') { e.preventDefault(); btnReset.click(); return; }
+  if (e.code === 'Digit0') { e.preventDefault(); toggle300Btn.click(); return; }
+  else if (/^Digit[1-9]$/.test(e.code)) {
+    const num = +e.code.slice(-1);
+    if (mode === modes.TIMER) {
+      e.preventDefault();
+      timerSpeed = num;
+      timerSpeedInput.value = String(timerSpeed);
+      speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === num));
+      if (timerRun) timerLast = Date.now();
+      return;
     }
+  }
 
-    if (mode === modes.COUNTER) {
-      if (e.code === 'Space') { e.preventDefault(); incBtn.click(); }
-      if (e.code === 'Enter') { e.preventDefault(); decBtn.click(); }
-    } else if (e.code === 'Space' || e.code === 'Enter') {
-      if (e.code === 'Space') { e.preventDefault(); btnToggle.click(); }
-    }
-  });
+  if (mode === modes.COUNTER) {
+    if (e.code === 'Space') { e.preventDefault(); incBtn.click(); }
+    if (e.code === 'Enter') { e.preventDefault(); decBtn.click(); }
+  } else if (e.code === 'Space' || e.code === 'Enter') {
+    if (e.code === 'Space') { e.preventDefault(); btnToggle.click(); }
+  }
+});
+
 
   applyFPS();
   update();
@@ -605,3 +613,4 @@ function isSpeedInputFocused() {
 </script>
 </body>
 </html>
+

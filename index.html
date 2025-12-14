@@ -250,6 +250,12 @@
     return row;
   }
 
+  // 日数を HEX モードなら16進で返す（末尾に「日」などは呼び出し側で付与）
+  function formatDayCount(n) {
+    if (hexMode) return n.toString(16).toLowerCase();
+    return String(n);
+  }
+
   function buildPartsFromMS(ms) {
     const h = Math.floor(ms / 3600000) % 24;
     const m = Math.floor(ms / 60000) % 60;
@@ -293,12 +299,14 @@
         return [d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12];
       }
     } else {
+      // HEX MODE
       const hHex = h.toString(16).toLowerCase().padStart(2,'0');
       const mHex = m.toString(16).toLowerCase().padStart(2,'0');
       const sHex = s.toString(16).toLowerCase().padStart(2,'0');
       const d3 = ':', d6=':';
       if (!use300Mode) {
-        let msHex = msr.toString(16).toLowerCase().padStart(3,'0');
+        let msHex = msr.toString(16).toLowerCase().padStart(3,'0'); // e.g. '00f'
+        // 先頭から連続する '0' を上位から空白化（ただし最下位桁は残す）
         msHex = blankLeadingHex(msHex);
         return [hHex[0], hHex[1], d3, mHex[0], mHex[1], d6, sHex[0], sHex[1], '.', msHex[0], msHex[1], msHex[2]];
       } else {
@@ -323,6 +331,7 @@
       if (p[0] === '0') p[0] = ' ';
       if (p[3] === '0') p[3] = ' ';
       if (p[6] === '0') p[6] = ' ';
+      // 小数部の上位桁は buildPartsFromMS 側で処理済み
     }
     return p;
   }
@@ -393,7 +402,12 @@
           timerSec = Math.max(0, timerSec - delta * timerSpeed);
           timerLast = t;
         }
-        top = timerSec >= 86400 ? `${Math.floor(timerSec / 86400)}日` : ' ';
+        if (timerSec >= 86400) {
+          const days = Math.floor(timerSec / 86400);
+          top = formatDayCount(days) + '日';
+        } else {
+          top = ' ';
+        }
         const remainingMS = Math.round((timerSec % 86400000) * 1000);
         bot = stripLeading(buildPartsFromMS(remainingMS)).join('');
         if (timerSec <= 0) {
@@ -422,11 +436,21 @@
         if (alarmSet) {
           if (now < alarmTime) {
             const diff = alarmTime - now;
-            top = diff >= 86400000 ? `${Math.floor(diff / 86400000)}日` : ' ';
+            if (diff >= 86400000) {
+              const days = Math.floor(diff / 86400000);
+              top = formatDayCount(days) + '日';
+            } else {
+              top = ' ';
+            }
             bot = stripLeading(buildPartsFromMS(diff % 86400000)).join('');
           } else {
             const up = now - alarmTime;
-            top = up >= 86400000 ? `${Math.floor(up / 86400000)}日経過` : ' ';
+            if (up >= 86400000) {
+              const days = Math.floor(up / 86400000);
+              top = formatDayCount(days) + '日経過';
+            } else {
+              top = ' ';
+            }
             bot = stripLeading(buildPartsFromMS(up % 86400000)).join('');
           }
         } else { top = 'アラーム未設定'; bot = '　　　　　'; }
@@ -569,42 +593,36 @@
     alarmSet = true;
     update();
   });
-function isSpeedInputFocused() {
-  const el = document.activeElement;
-  return el === timerSpeedInput || el === swSpeedInput;
-}
 
-
-  // --- 置き換えるキーボードハンドラ（既存の document.body.addEventListener をこれに差し替えてください） ---
-document.addEventListener('keydown', (e) => {
-  // テキスト入力中はショートカットを無効にする
-  const ae = document.activeElement;
-  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
-    return; // 何も処理せず抜ける（元の挙動は変更しない）
-  }
-
-  if (e.code === 'KeyR') { e.preventDefault(); btnReset.click(); return; }
-  if (e.code === 'Digit0') { e.preventDefault(); toggle300Btn.click(); return; }
-  else if (/^Digit[1-9]$/.test(e.code)) {
-    const num = +e.code.slice(-1);
-    if (mode === modes.TIMER) {
-      e.preventDefault();
-      timerSpeed = num;
-      timerSpeedInput.value = String(timerSpeed);
-      speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === num));
-      if (timerRun) timerLast = Date.now();
-      return;
+  // --- 置き換えるキーボードハンドラ（入力中はショートカット無効） ---
+  document.addEventListener('keydown', (e) => {
+    // テキスト入力中はショートカットを無効にする
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+      return; // 何も処理せず抜ける
     }
-  }
 
-  if (mode === modes.COUNTER) {
-    if (e.code === 'Space') { e.preventDefault(); incBtn.click(); }
-    if (e.code === 'Enter') { e.preventDefault(); decBtn.click(); }
-  } else if (e.code === 'Space' || e.code === 'Enter') {
-    if (e.code === 'Space') { e.preventDefault(); btnToggle.click(); }
-  }
-});
+    if (e.code === 'KeyR') { e.preventDefault(); btnReset.click(); return; }
+    if (e.code === 'Digit0') { e.preventDefault(); toggle300Btn.click(); return; }
+    else if (/^Digit[1-9]$/.test(e.code)) {
+      const num = +e.code.slice(-1);
+      if (mode === modes.TIMER) {
+        e.preventDefault();
+        timerSpeed = num;
+        timerSpeedInput.value = String(timerSpeed);
+        speedButtons.forEach(x => x.classList.toggle('active', +x.dataset.speed === num));
+        if (timerRun) timerLast = Date.now();
+        return;
+      }
+    }
 
+    if (mode === modes.COUNTER) {
+      if (e.code === 'Space') { e.preventDefault(); incBtn.click(); }
+      if (e.code === 'Enter') { e.preventDefault(); decBtn.click(); }
+    } else if (e.code === 'Space' || e.code === 'Enter') {
+      if (e.code === 'Space') { e.preventDefault(); btnToggle.click(); }
+    }
+  });
 
   applyFPS();
   update();
@@ -613,4 +631,3 @@ document.addEventListener('keydown', (e) => {
 </script>
 </body>
 </html>
-
